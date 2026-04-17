@@ -11,9 +11,84 @@ import math
 import random
 import sys
 
+try:
+    import numpy as _np
+
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
 
 pygame.init()
 
+# ── サウンド ──────────────────────────────────────────────
+_SOUND_OK = False
+if _HAS_NUMPY:
+    try:
+        _SR = 44100
+        pygame.mixer.init(_SR, -16, 2, 512)
+
+        def _stereo(mono):
+            s = _np.column_stack([mono, mono])
+            return pygame.sndarray.make_sound(s)
+
+        def _snd_hum():
+            """詠唱中の低い魔力ハム音"""
+            n = int(_SR * 6)
+            t = _np.linspace(0, 6, n, False)
+            w = (
+                _np.sin(2 * _np.pi * 55 * t)
+                + 0.5 * _np.sin(2 * _np.pi * 110 * t)
+                + 0.25 * _np.sin(2 * _np.pi * 165 * t)
+                + 0.12 * _np.sin(2 * _np.pi * 27.5 * t)
+            )
+            w /= _np.max(_np.abs(w)) + 1e-8
+            return _stereo((w * 0.22 * 32767).astype(_np.int16))
+
+        def _snd_charge():
+            """詠唱終盤のエネルギー蓄積音（ピッチが上昇するトーン）"""
+            n = int(_SR * 0.7)
+            t = _np.linspace(0, 0.7, n, False)
+            freqs = _np.linspace(90, 1400, n)
+            phase = 2 * _np.pi * _np.cumsum(freqs / _SR)
+            w = _np.sin(phase)
+            rng = _np.random.default_rng(0)
+            w = w * 0.75 + rng.uniform(-0.25, 0.25, n) * 0.25
+            w *= (t / 0.7) * 0.7
+            return _stereo((w * 32767).astype(_np.int16))
+
+        def _snd_explosion():
+            """爆発の衝撃音（サブベース＋広帯域ノイズ）"""
+            dur = 3.0
+            n = int(_SR * dur)
+            t = _np.linspace(0, dur, n, False)
+            thump = (
+                _np.sin(2 * _np.pi * 35 * t) * _np.exp(-t * 1.8)
+                + _np.sin(2 * _np.pi * 70 * t) * _np.exp(-t * 2.5) * 0.5
+                + _np.sin(2 * _np.pi * 110 * t) * _np.exp(-t * 4) * 0.3
+            )
+            rng = _np.random.default_rng(1)
+            noise = rng.uniform(-1, 1, n)
+            noise *= (1 - _np.exp(-t * 80)) * _np.exp(-t * 1.2)
+            w = _np.clip(thump * 0.65 + noise * 0.5, -1, 1)
+            return _stereo((w * 0.9 * 32767).astype(_np.int16))
+
+        def _snd_crackle():
+            """炎のパチパチ音（ループ用）"""
+            dur = 5.0
+            n = int(_SR * dur)
+            rng = _np.random.default_rng(2)
+            noise = rng.uniform(-1, 1, n)
+            noise = _np.convolve(noise, _np.ones(12) / 12, mode="same")
+            noise /= _np.max(_np.abs(noise)) + 1e-8
+            return _stereo((noise * 0.28 * 32767).astype(_np.int16))
+
+        snd_hum = _snd_hum()
+        snd_charge = _snd_charge()
+        snd_explosion = _snd_explosion()
+        snd_crackle = _snd_crackle()
+        _SOUND_OK = True
+    except Exception:
+        pass
 
 # ── 定数 ────────────────────────────────────────────────
 WIDTH, HEIGHT = 1280, 720
@@ -33,9 +108,9 @@ T_END = 15.0  # 終了
 # 詠唱テキスト (時刻, テキスト)
 CHANT = [
     (0.3, "Burn away this fleeting life of mine,"),
-    (1.2, "and bring ruin upon my enemies!"),
+    # (1.2, "and bring ruin upon my enemies!"),
     (2.2, "O great conflagration,"),
-    (3.2, "reduce all to ash!"),
+    # (3.2, "reduce all to ash!"),
     (4.2, "EXPLOSION!!!"),
 ]
 
@@ -922,6 +997,8 @@ def main():
                 if ev.key == pygame.K_ESCAPE:
                     running = False
                 if ev.key == pygame.K_r:
+                    if _SOUND_OK:
+                        pygame.mixer.stop()
                     state = reset()
                     t = now()
                 if ev.key == pygame.K_p:
@@ -950,6 +1027,26 @@ def main():
             st["shake_frames"] -= 1
         else:
             st["shake_x"] = st["shake_y"] = 0
+
+        # ── サウンドトリガー ──────────────────────────────
+        if _SOUND_OK:
+            if not st["snd_hum_on"]:
+                snd_hum.play(-1)
+                st["snd_hum_on"] = True
+            if not st["snd_charge_on"] and t >= T_CHANT_END:
+                snd_charge.play()
+                st["snd_charge_on"] = True
+            if not st["snd_boom_on"] and st["explosion_done"]:
+                snd_hum.fadeout(300)
+                snd_explosion.play()
+                st["snd_boom_on"] = True
+            if not st["snd_crackle_on"] and t >= T_PEAK:
+                snd_crackle.set_volume(0.6)
+                snd_crackle.play(-1)
+                st["snd_crackle_on"] = True
+            if st["snd_crackle_on"] and t >= T_FADE:
+                prog = min(1.0, (t - T_FADE) / (T_END - T_FADE))
+                snd_crackle.set_volume(max(0.0, 0.6 * (1.0 - prog)))
 
         # ── フェーズ別ロジック ──────────────────────────
         if t < T_CHANT_END:

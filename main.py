@@ -108,9 +108,9 @@ T_END = 15.0  # 終了
 # 詠唱テキスト (時刻, テキスト)
 CHANT = [
     (0.3, "Burn away this fleeting life of mine,"),
-    # (1.2, "and bring ruin upon my enemies!"),
+    #    (1.2, "and bring ruin upon my enemies!"),
     (2.2, "O great conflagration,"),
-    # (3.2, "reduce all to ash!"),
+    #    (3.2, "reduce all to ash!"),
     (4.2, "EXPLOSION!!!"),
 ]
 
@@ -576,7 +576,8 @@ class FireWisp:
         self.base_x = float(x) + random.uniform(-80, 80)
         self.x = self.base_x
         self.y = float(y)
-        self.vy = random.uniform(-9.5, -0.3)  # 速度アップ
+        self.vx = random.uniform(-9.5, 9.5)
+        self.vy = random.uniform(-9.5, 9.5)  # 速度アップ
         self.t = random.uniform(0, math.pi * 2)
         self.amp = random.uniform(10, 32)
         self.freq = random.uniform(0.5, 2.0)
@@ -593,6 +594,7 @@ class FireWisp:
             self.history.pop(0)
         self.t += 0.13
         self.y += self.vy
+        self.base_x += self.vx
         self.x = self.base_x + self.amp * math.sin(self.t * self.freq)
         self.size = max(0.5, self.size * 0.992)
         self.life -= 1
@@ -1113,7 +1115,8 @@ def main():
                 dist = random.uniform(60, 280)
                 ex = CENTER_X + math.cos(ang) * dist
                 ey = CENTER_Y + math.sin(ang) * dist
-                col = random.choice([(200, 100, 255), (255, 200, 100), (150, 200, 255)])
+                color_choices = [(200, 100, 255), (255, 200, 100), (150, 200, 255)]
+                col = random.choice(color_choices)
                 st["lightnings"].append(Lightning(CENTER_X, CENTER_Y, ex, ey, col))
 
             # ✨ キラキラも継続（より密に）
@@ -1230,12 +1233,12 @@ def main():
         st["wisps"] = [w for w in st["wisps"] if w.alive]
 
         # ── 描画 ─────────────────────────────────────────
-        ox, oy = st["shake_x"], st["shake_y"]
+        ox, oy, alpha = st["shake_x"], st["shake_y"], st["crack_alpha"]
         screen.fill(BG_COLOR)
 
         # 地面クラック
         if st["crack_alpha"] > 0:
-            draw_cracks(screen, CENTER_X, CENTER_Y, 280, st["crack_alpha"], ox, oy)
+            draw_cracks(screen, CENTER_X, CENTER_Y, 280, alpha, ox, oy)
 
         # 🌋 溶岩（地面に近いので最下層）
         for lv in st["lava_list"]:
@@ -1309,7 +1312,8 @@ def main():
 
         # 火球
         if st["fireball_r"] > 1:
-            draw_fireball(screen, CENTER_X + ox, CENTER_Y + oy, int(st["fireball_r"]))
+            ox_, oy_ = CENTER_X + ox, CENTER_Y + oy
+            draw_fireball(screen, ox_, oy_, int(st["fireball_r"]))
 
         # ⚡ 稲妻（最前景）
         for ln in st["lightnings"]:
@@ -1373,7 +1377,8 @@ def main():
                         scaled = pygame.transform.scale(rendered, (sw2, sh2))
                         scaled.set_alpha(a)
                         shadow = font.render(text, True, (255, 80, 0))
-                        ssw = pygame.transform.scale(shadow, (sw2 + 4, sh2 + 4))
+                        sw2_, sh2_ = sw2 + 4, sh2 + 4
+                        ssw = pygame.transform.scale(shadow, (sw2_, sh2_))
                         ssw.set_alpha(a // 3)
                         sx = WIDTH // 2 - sw2 // 2
                         sy = HEIGHT // 4 + yoff - sh2 // 2
